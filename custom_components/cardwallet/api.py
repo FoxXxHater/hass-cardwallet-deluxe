@@ -1,3 +1,15 @@
-from .controllers import CardWalletListAPI, CardWalletItemAPI
+"""Backwards-compatible re-exports of the REST views."""
 
-__all__ = ["CardWalletListAPI", "CardWalletItemAPI"]
+from .controllers import (
+    CardWalletItemAPI,
+    CardWalletItemView,
+    CardWalletListAPI,
+    CardWalletListView,
+)
+
+__all__ = [
+    "CardWalletItemAPI",
+    "CardWalletItemView",
+    "CardWalletListAPI",
+    "CardWalletListView",
+]

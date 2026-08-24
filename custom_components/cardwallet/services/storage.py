@@ -1,85 +1,161 @@
+"""Persistence for wallet cards.
+
+Cards are kept in Home Assistant's own storage (``.storage/cardwallet.cards``)
+instead of a hand-rolled JSON file. That removes the ``aiofiles`` dependency,
+gives us atomic writes, restrictive file permissions and a versioned migration
+path — and it means the data is part of a normal HA backup.
+"""
+
+from __future__ import annotations
+
 import json
-import aiofiles
+import logging
 import os
-from typing import List, Optional
-from .path_utils import get_storage_path
-from custom_components.cardwallet.models.card import Card
+from typing import Any
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
+
+from ..const import MAX_CARDS_PER_USER, STORAGE_KEY, STORAGE_VERSION
+from ..models.card import Card
+from .path_utils import get_legacy_storage_path
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class CardWalletStore(Store):
+    """Store with a migration path from the first storage layout."""
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        if old_major_version < 2:
+            cards = old_data.get("cards", []) if isinstance(old_data, dict) else []
+            old_data = {"cards": [Card.from_dict(card).to_dict() for card in cards]}
+        return old_data
 
 
 class CardStorage:
-    _instance = None
+    """In-memory list of cards, backed by a Home Assistant store."""
 
-    def __new__(cls, hass):
-        if cls._instance is None:
-            cls._instance = super(CardStorage, cls).__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self, hass):
-        if self._initialized:
-            return
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialise the store for this Home Assistant instance."""
         self.hass = hass
-        self.file_path = get_storage_path(hass)
-        self.cards: List[Card] = []
-        self._initialized = True
+        self._store = CardWalletStore(
+            hass,
+            STORAGE_VERSION,
+            STORAGE_KEY,
+            private=True,
+            atomic_writes=True,
+        )
+        self._cards: list[Card] = []
+        self._loaded = False
 
-    async def load(self):
-        if not os.path.exists(self.file_path):
-            self.cards = []
-            return
+    # ------------------------------------------------------------------
+    # loading
+    # ------------------------------------------------------------------
 
-        async with aiofiles.open(self.file_path, "r", encoding="utf-8") as f:
-            contents = await f.read()
+    async def async_load(self) -> None:
+        """Load cards from disk, importing the legacy file once if needed."""
+        data = await self._store.async_load()
+
+        if data is None:
+            imported = await self._async_import_legacy()
+            self._cards = imported
+            if imported:
+                await self._async_save()
+        else:
+            self._cards = [Card.from_dict(card) for card in data.get("cards", [])]
+
+        self._loaded = True
+        _LOGGER.debug("Loaded %s card(s)", len(self._cards))
+
+    async def _async_import_legacy(self) -> list[Card]:
+        """Read the pre-2.0 JSON file, if one is lying around."""
+        path = get_legacy_storage_path(self.hass)
+
+        def _read() -> list[dict[str, Any]]:
+            if not os.path.exists(path):
+                return []
             try:
-                raw_list = json.loads(contents) or []
-                normalized_cards = []
-                for c in raw_list:
-                    fmt = c.get("format") or "CODE128"
-                    normalized_cards.append(Card(**{**c, "format": fmt}))
-                self.cards = normalized_cards
-            except json.JSONDecodeError:
-                self.cards = []
+                with open(path, encoding="utf-8") as handle:
+                    content = json.load(handle)
+            except (OSError, json.JSONDecodeError):
+                _LOGGER.warning("Could not read legacy card file at %s", path)
+                return []
+            return content if isinstance(content, list) else []
 
-    async def _save_cards(self):
-        async with aiofiles.open(self.file_path, "w", encoding="utf-8") as f:
-            data = json.dumps([c.__dict__ for c in self.cards], indent=2)
-            await f.write(data)
+        raw = await self.hass.async_add_executor_job(_read)
+        if not raw:
+            return []
 
-    def get_user_cards(self, user_id: str) -> List[Card]:
-        return [c for c in self.cards if c.user_id == user_id]
+        _LOGGER.info("Importing %s card(s) from %s", len(raw), path)
 
-    async def add_card(self, card: Card) -> Card:
-        self.cards.append(card)
-        await self._save_cards()
+        def _rename() -> None:
+            try:
+                os.rename(path, f"{path}.migrated")
+            except OSError:
+                _LOGGER.warning("Imported cards but could not rename %s", path)
+
+        await self.hass.async_add_executor_job(_rename)
+        return [Card.from_dict(card) for card in raw]
+
+    async def _async_save(self) -> None:
+        await self._store.async_save({"cards": [card.to_dict() for card in self._cards]})
+
+    # ------------------------------------------------------------------
+    # reading
+    # ------------------------------------------------------------------
+
+    def visible_to(self, user_id: str, include_shared: bool = True) -> list[Card]:
+        """Return the user's own cards plus, optionally, shared ones."""
+        return [
+            card
+            for card in self._cards
+            if card.user_id == user_id or (include_shared and card.shared)
+        ]
+
+    def owned_by(self, user_id: str) -> list[Card]:
+        """Return only the cards this user owns."""
+        return [card for card in self._cards if card.user_id == user_id]
+
+    def get(self, card_id: str) -> Card | None:
+        """Return a card by id, regardless of owner."""
+        return next((card for card in self._cards if card.card_id == card_id), None)
+
+    def count_for_user(self, user_id: str) -> int:
+        """Return how many cards this user owns."""
+        return sum(1 for card in self._cards if card.user_id == user_id)
+
+    # ------------------------------------------------------------------
+    # writing
+    # ------------------------------------------------------------------
+
+    async def async_add(self, card: Card) -> Card:
+        """Append a card and persist."""
+        if self.count_for_user(card.user_id) >= MAX_CARDS_PER_USER:
+            raise ValueError(f"a user may hold at most {MAX_CARDS_PER_USER} cards")
+        self._cards.append(card)
+        await self._async_save()
         return card
 
-    def share_card(self, card_id: str):
-        for card in self.cards:
-            if card.card_id == card_id:
-                card.shared = True
+    async def async_replace(self, card: Card) -> Card:
+        """Replace an existing card (matched by id) and persist."""
+        for index, existing in enumerate(self._cards):
+            if existing.card_id == card.card_id:
+                self._cards[index] = card
+                await self._async_save()
+                return card
+        raise KeyError(card.card_id)
 
-    def get_shared_cards(self) -> List[Card]:
-        return [c for c in self.cards if getattr(c, "shared", False)]
-
-    async def update_card(self, user_id: str, card_id: str, new_data: dict) -> Optional[Card]:
-        for idx, card in enumerate(self.cards):
-            if card.card_id == card_id and card.user_id == user_id:
-                updated_card = Card(**{**card.__dict__, **new_data})
-                self.cards[idx] = updated_card
-                await self._save_cards()
-                return updated_card
-        return None
-
-    async def delete_card(self, user_id: str, card_id: str) -> bool:
-        original_len = len(self.cards)
-        self.cards = [c for c in self.cards if not (c.card_id == card_id and c.user_id == user_id)]
-        if len(self.cards) < original_len:
-            await self._save_cards()
-            return True
-        return False
-
-    async def get_all(self) -> List[Card]:
-        return self.cards
-
-    async def get_card_by_id(self, card_id: str) -> Optional[Card]:
-        return next((c for c in self.cards if c.card_id == card_id), None)
+    async def async_delete(self, card_id: str) -> bool:
+        """Remove a card by id. Ownership is checked by the caller."""
+        remaining = [card for card in self._cards if card.card_id != card_id]
+        if len(remaining) == len(self._cards):
+            return False
+        self._cards = remaining
+        await self._async_save()
+        return True

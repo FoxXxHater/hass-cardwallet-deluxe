@@ -1,6 +1,7 @@
 # CardWallet – Custom Integration for Home Assistant
 
-**CardWallet** is a custom integration for Home Assistant that provides a backend API to manage wallet cards (e.g., loyalty cards, membership cards) linked to Home Assistant users.
+**CardWallet** stores wallet cards (loyalty cards, membership cards) per Home Assistant
+user and serves them to a Lovelace card that renders them as a scannable barcode.
 
 ![Popup Barcode](/assets/barcode.png)
 
@@ -8,40 +9,80 @@
 
 ## 📦 Installation
 
-### HACS (Recommended)
-
-Add this repository to HACS as a custom integration.
+### HACS
 
 - HACS → Integrations → "+" → "Custom repositories"
-- Add the repository URL: `https://github.com/rozgonyiadam/hass-cardwallet`
-- Category: Integration
+- Repository URL: `https://github.com/rozgonyiadam/hass-cardwallet`, category: Integration
 - Install and restart Home Assistant.
 
-### Manual Installation
+### Manual
 
-- Copy the `cardwallet` directory into your Home Assistant `config/custom_components` directory.
+- Copy the `cardwallet` directory into `config/custom_components`.
 - Restart Home Assistant.
 
-## ⚙️ Configuration
-Add the following to your configuration.yaml:
-```yaml
-cardwallet:
-```
+## ⚙️ Setup
 
-## 📚 API
+**Settings → Devices & Services → Add Integration → CardWallet.**
 
-This integration provides the following REST API endpoints:
+No YAML required. The single option, *allow sharing*, decides whether cards marked
+as shared are visible to the other users of this Home Assistant instance; it can be
+changed later under the integration's **Configure** button.
 
-- `GET /api/cardwallet` - Get a list of cards
-- `POST /api/cardwallet` - Add a new card
-- `PUT /api/cardwallet/{card_id}` - Update a card's information
-- `DELETE /api/cardwallet/{card_id}` - Delete a card
+Installations that used the old `cardwallet:` block in `configuration.yaml` are
+imported into the UI automatically on the next restart — the block can then be
+deleted.
 
-All endpoints require an authenticated Home Assistant user.
+## 🔐 Ownership
+
+A card belongs to the Home Assistant user who created it. The owner is taken from
+the authenticated request and can never be set by the client. Cards are readable by
+their owner, plus by everyone if the card is marked `shared` and sharing is enabled.
+Only the owner can change or delete a card.
+
+## 🔌 WebSocket API
+
+Preferred for frontend cards: the connection is already authenticated, and clients
+can subscribe to changes instead of polling.
+
+| Command | Payload | Returns |
+| --- | --- | --- |
+| `cardwallet/list` | – | `{ "cards": [...] }` |
+| `cardwallet/add` | `name`, `code`, `format?`, `color?`, `shared?`, `notes?` | the created card |
+| `cardwallet/update` | `card_id`, plus any field above | the updated card |
+| `cardwallet/delete` | `card_id` | `{ "card_id": "…" }` |
+| `cardwallet/subscribe` | – | an event whenever any card changes |
+
+## 📚 REST API
+
+- `GET /api/cardwallet` – cards visible to the authenticated user
+- `POST /api/cardwallet` – create a card
+- `PUT /api/cardwallet/{card_id}` – update an owned card
+- `DELETE /api/cardwallet/{card_id}` – delete an owned card
+
+`user_id` in a request body is ignored; the authenticated user always wins.
+
+## 🏷️ Card format
+
+`format` follows JsBarcode naming (`CODE128`, `EAN13`, `EAN8`, `UPC`, `ITF14`, `QR`, …).
+Scanner names such as `ean_13` or `qr_code` are normalised on the way in, so a value
+straight from `BarcodeDetector` or ZXing can be passed through unchanged.
+
+Codes are validated when they are stored, not when they are rendered: `EAN13`, `EAN8`,
+`UPC` and `ITF14` must carry a correct mod-10 check digit. A card that would be
+rejected at the till is rejected here instead.
+
+## 💾 Storage
+
+Cards live in Home Assistant's own storage (`.storage/cardwallet.cards`, written
+atomically with restrictive permissions) and are therefore part of a normal backup.
+A pre-2.0 `cardwallet_cards.json` in the config directory is imported once on first
+start and renamed to `.migrated`.
+
+> Card numbers are stored in plain text, as is every other integration's data. That
+> is fine for loyalty cards; do not put anything with a payment function in here.
 
 ## 🖥️ Frontend Card
 
-A custom Lovelace card is available to display your CardWallet cards visually:  
 👉 [lovelace-cardwallet](https://github.com/rozgonyiadam/lovelace-cardwallet)
 
 ---

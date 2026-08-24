@@ -1,4 +1,15 @@
-from .list_view import CardWalletListAPI
-from .item_view import CardWalletItemAPI
+"""REST controllers for the CardWallet integration."""
 
-__all__ = ["CardWalletListAPI", "CardWalletItemAPI"]
+from .item_view import CardWalletItemView
+from .list_view import CardWalletListView
+
+# Pre-2.0 names, kept so external imports do not break.
+CardWalletListAPI = CardWalletListView
+CardWalletItemAPI = CardWalletItemView
+
+__all__ = [
+    "CardWalletItemAPI",
+    "CardWalletItemView",
+    "CardWalletListAPI",
+    "CardWalletListView",
+]
