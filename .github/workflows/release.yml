@@ -1,6 +1,6 @@
 name: Release
 
-# Any pushed tag publishes a release. Tags starting with "b" (b1.2.0, beta-3, …)
+# Any pushed tag publishes a release. Tags starting with "b" (b2.1.0, beta-3, …)
 # are published as pre-releases, everything else as a stable release.
 on:
   push:
@@ -40,12 +40,15 @@ jobs:
           # HACS installs what the tag says, but shows what the manifest says.
           # A mismatch is confusing rather than fatal, so this only warns.
           manifest_version="$(
-            python3 -c 'import json; print(json.load(open("custom_components/cardwallet/manifest.json"))["version"])'
+            python3 -c 'import json; print(json.load(open("custom_components/cardwallet_deluxe/manifest.json"))["version"])'
           )"
           tag_version="${TAG#[bBvV]}"
           if [[ "$manifest_version" != "$tag_version" ]]; then
             echo "::warning::manifest.json is at $manifest_version but the tag is $tag_version"
           fi
+
+      - name: Run the offline tests
+        run: python3 tests/test_logic.py
 
       - name: Create the release
         env:
