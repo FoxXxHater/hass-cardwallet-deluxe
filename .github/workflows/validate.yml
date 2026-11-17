@@ -38,7 +38,8 @@ jobs:
           category: integration
           # These checks are about GitHub repository settings, not the code,
           # and only matter for inclusion in the HACS default list:
-          # - brands: the icon is not in home-assistant/brands (yet)
+          # - brands: the icons ship locally in custom_components/.../brand/
+          #   (Home Assistant 2026.3+), not via home-assistant/brands
           # - license: the repository has no LICENSE file
           # Drop an entry once it is fixed on GitHub.
           ignore: brands license
