@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 from ..services.formats import DEFAULT_FORMAT
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,3 +49,20 @@ class Card:
         payload.setdefault("owner", "")
         payload["shared"] = bool(payload.get("shared", False))
         return cls(**payload)
+
+
+def cards_from_dicts(raw: Iterable[Any], source: str) -> list[Card]:
+    """Build cards from stored or imported data, skipping broken entries.
+
+    A single damaged entry (missing ``code``, not a dict, …) must not keep the
+    whole integration from starting, so it is logged and dropped instead.
+    """
+    cards: list[Card] = []
+    for index, entry in enumerate(raw):
+        try:
+            if not isinstance(entry, dict):
+                raise TypeError(f"expected an object, got {type(entry).__name__}")
+            cards.append(Card.from_dict(entry))
+        except (TypeError, ValueError) as err:
+            _LOGGER.warning("Skipping unreadable card #%s from %s: %s", index, source, err)
+    return cards

@@ -15,13 +15,11 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN
-from .controllers.helpers import get_store, sharing_enabled
+from .const import DOMAIN, SIGNAL_CARDS_UPDATED
+from .controllers.helpers import get_store, notify_cards_changed, sharing_enabled
 from .services.payload import PayloadError, apply_update, build_card
-
-SIGNAL_CARDS_UPDATED = f"{DOMAIN}_cards_updated"
 
 
 @callback
@@ -90,7 +88,7 @@ async def ws_add(
         connection.send_error(msg["id"], "limit_reached", str(err))
         return
 
-    _notify(hass)
+    notify_cards_changed(hass)
     connection.send_result(msg["id"], saved.to_dict())
 
 
@@ -129,7 +127,7 @@ async def ws_update(
         return
 
     await store.async_replace(updated)
-    _notify(hass)
+    notify_cards_changed(hass)
     connection.send_result(msg["id"], updated.to_dict())
 
 
@@ -154,7 +152,7 @@ async def ws_delete(
         return
 
     await store.async_delete(card.card_id)
-    _notify(hass)
+    notify_cards_changed(hass)
     connection.send_result(msg["id"], {"card_id": card.card_id})
 
 
@@ -176,9 +174,3 @@ def ws_subscribe(
         hass, SIGNAL_CARDS_UPDATED, _forward
     )
     connection.send_result(msg["id"])
-
-
-@callback
-def _notify(hass: HomeAssistant) -> None:
-    """Tell subscribed clients that the card list changed."""
-    async_dispatcher_send(hass, SIGNAL_CARDS_UPDATED)

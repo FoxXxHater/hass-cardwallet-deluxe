@@ -23,7 +23,7 @@ from ..const import (
     STORAGE_KEY,
     STORAGE_VERSION,
 )
-from ..models.card import Card
+from ..models.card import Card, cards_from_dicts
 from .path_utils import get_legacy_storage_path
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +40,9 @@ class CardWalletStore(Store):
     ) -> dict[str, Any]:
         if old_major_version < 2:
             cards = old_data.get("cards", []) if isinstance(old_data, dict) else []
-            old_data = {"cards": [Card.from_dict(card).to_dict() for card in cards]}
+            old_data = {
+                "cards": [card.to_dict() for card in cards_from_dicts(cards, self.key)]
+            }
         return old_data
 
 
@@ -74,7 +76,7 @@ class CardStorage:
             if imported:
                 await self._async_save()
         else:
-            self._cards = [Card.from_dict(card) for card in data.get("cards", [])]
+            self._cards = cards_from_dicts(data.get("cards", []), STORAGE_KEY)
 
         self._loaded = True
         _LOGGER.debug("Loaded %s card(s)", len(self._cards))
@@ -93,7 +95,7 @@ class CardStorage:
         if old_data and old_data.get("cards"):
             cards = old_data["cards"]
             _LOGGER.info("Importing %s card(s) from %s", len(cards), LEGACY_STORAGE_KEY)
-            return [Card.from_dict(card) for card in cards]
+            return cards_from_dicts(cards, LEGACY_STORAGE_KEY)
 
         return await self._async_import_legacy_file()
 
@@ -117,7 +119,7 @@ class CardStorage:
             return []
 
         _LOGGER.info("Importing %s card(s) from %s", len(raw), path)
-        return [Card.from_dict(card) for card in raw]
+        return cards_from_dicts(raw, path)
 
     async def _async_save(self) -> None:
         await self._store.async_save({"cards": [card.to_dict() for card in self._cards]})

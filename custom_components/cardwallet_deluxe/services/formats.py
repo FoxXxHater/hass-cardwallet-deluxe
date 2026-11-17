@@ -39,7 +39,10 @@ _ALIASES: dict[str, str] = {
     "AZTEC": "AZTEC",
     "CODABAR": "CODABAR",
     "CODE_39": "CODE39",
-    "CODE_93": "CODE39",
+    # The frontend cannot draw Code 93. Code 39 would be a different, more
+    # limited symbology; Code 128 can encode any Code 93 content and every
+    # till scanner reads it.
+    "CODE_93": "CODE128",
     "CODE_128": "CODE128",
     "DATA_MATRIX": "DATAMATRIX",
     "EAN_8": "EAN8",
@@ -50,7 +53,6 @@ _ALIASES: dict[str, str] = {
     "QR_CODE": "QR",
     "UPC_A": "UPC",
     "UPC_E": "UPCE",
-    "UPC_EAN_EXTENSION": "EAN13",
 }
 
 #: Formats that carry a fixed number of digits including a trailing check digit.

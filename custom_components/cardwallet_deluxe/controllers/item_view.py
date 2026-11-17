@@ -9,7 +9,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from ..services.payload import PayloadError, apply_update
-from .helpers import get_store, user_from_request
+from .helpers import get_store, notify_cards_changed, user_from_request
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class CardWalletItemView(HomeAssistantView):
             return self.json({"error": str(err)}, status_code=400)
 
         await store.async_replace(updated)
+        notify_cards_changed(self.hass)
         return self.json(updated.to_dict())
 
     async def delete(self, request: web.Request, card_id: str) -> web.Response:
@@ -68,4 +69,5 @@ class CardWalletItemView(HomeAssistantView):
             return self.json({"error": "card not found"}, status_code=404)
 
         await store.async_delete(card_id)
+        notify_cards_changed(self.hass)
         return self.json({"status": "deleted", "card_id": card_id})

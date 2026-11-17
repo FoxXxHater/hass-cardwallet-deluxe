@@ -21,3 +21,7 @@ DEFAULT_ALLOW_SHARING = True
 MAX_NAME_LENGTH = 80
 MAX_CODE_LENGTH = 512
 MAX_CARDS_PER_USER = 200
+MAX_NOTES_LENGTH = 500
+
+# Dispatcher signal fired whenever the card list changes
+SIGNAL_CARDS_UPDATED = f"{DOMAIN}_cards_updated"
