@@ -9,7 +9,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from ..services.payload import PayloadError, build_card
-from .helpers import get_store, sharing_enabled, user_from_request
+from .helpers import get_store, notify_cards_changed, sharing_enabled, user_from_request
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,4 +59,5 @@ class CardWalletListView(HomeAssistantView):
         except ValueError as err:
             return self.json({"error": str(err)}, status_code=409)
 
+        notify_cards_changed(self.hass)
         return self.json(saved.to_dict())

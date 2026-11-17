@@ -36,7 +36,9 @@ for name, path in (
     module.__path__ = [str(path)]
     sys.modules[name] = module
 
-Card = importlib.import_module("cw.models.card").Card
+_card = importlib.import_module("cw.models.card")
+Card = _card.Card
+cards_from_dicts = _card.cards_from_dicts
 _formats = importlib.import_module("cw.services.formats")
 CodeValidationError = _formats.CodeValidationError
 gtin_check_digit = _formats.gtin_check_digit
@@ -80,6 +82,8 @@ check("CODE128C survives", normalize_format("CODE128C") == "CODE128C")
 check("already-clean EAN13 survives", normalize_format("EAN13") == "EAN13")
 check("unknown falls back", normalize_format("wat") == "CODE128")
 check("None falls back", normalize_format(None) == "CODE128")
+check("code_93 -> CODE128, not CODE39", normalize_format("code_93") == "CODE128")
+check("upc_ean_extension is not EAN13", normalize_format("upc_ean_extension") != "EAN13")
 
 print("\ncheck digits")
 check("EAN13 4006381333931", validate_code("4006381333931", "EAN13") == "4006381333931")
@@ -123,6 +127,15 @@ raises("changing format re-validates the stored code", lambda: apply_update(card
 check("no changes -> same object", apply_update(card, {}) is card)
 check("switching a card to QR works", apply_update(card, {"format": "QR"}).format == "QR")
 
+print("\nshared and notes")
+raises("string 'false' is not a boolean", lambda: build_card("u", "", {"name": "X", "code": "1", "shared": "false"}))
+raises("update with string shared rejected", lambda: apply_update(card, {"shared": "false"}))
+check("shared true accepted", apply_update(card, {"shared": True}).shared is True)
+check("shared null means not shared", build_card("u", "", {"name": "X", "code": "1", "shared": None}).shared is False)
+check("notes truncated", len(build_card("u", "", {"name": "X", "code": "1", "notes": "n" * 900}).notes) == 500)
+check("notes null -> empty", apply_update(card, {"notes": None}).notes == "")
+raises("non-string notes rejected", lambda: build_card("u", "", {"name": "X", "code": "1", "notes": 42}))
+
 print("\nlegacy data")
 legacy = Card.from_dict(
     {"card_id": "1", "name": "Alt", "code": "123", "owner": "John", "user_id": "u", "unknown_key": "x"}
@@ -131,6 +144,16 @@ check("unknown keys ignored", legacy.name == "Alt")
 check("format defaulted", legacy.format == "CODE128")
 check("shared defaulted", legacy.shared is False)
 check("round trip", Card.from_dict(legacy.to_dict()) == legacy)
+mixed = cards_from_dicts(
+    [
+        {"card_id": "1", "name": "Ok", "code": "1", "user_id": "u"},
+        {"card_id": "2", "name": "No code", "user_id": "u"},
+        "not a dict",
+        {"card_id": "3", "name": "Also ok", "code": "3", "user_id": "u"},
+    ],
+    "test",
+)
+check("broken entries skipped, good ones kept", [c.card_id for c in mixed] == ["1", "3"])
 
 print()
 if failures:

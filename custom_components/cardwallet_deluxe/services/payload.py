@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from homeassistant.util import dt as dt_util
 
-from ..const import MAX_CODE_LENGTH, MAX_NAME_LENGTH
+from ..const import MAX_CODE_LENGTH, MAX_NAME_LENGTH, MAX_NOTES_LENGTH
 from ..models.card import Card
 from .formats import CodeValidationError, normalize_format, validate_code
 
@@ -43,6 +43,24 @@ def _clean_color(value: Any) -> str | None:
     return value.strip().lower()
 
 
+def _clean_shared(value: Any) -> bool:
+    # Only a real JSON boolean counts: bool("false") would be True and would
+    # silently share a card the user meant to keep private.
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise PayloadError("shared must be true or false")
+    return value
+
+
+def _clean_notes(value: Any) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise PayloadError("notes must be a string")
+    return value[:MAX_NOTES_LENGTH]
+
+
 def _clean_code(value: Any, barcode_format: str) -> str:
     if isinstance(value, str) and len(value) > MAX_CODE_LENGTH:
         raise PayloadError(f"code must be at most {MAX_CODE_LENGTH} characters")
@@ -64,11 +82,11 @@ def build_card(user_id: str, owner_name: str, data: dict[str, Any]) -> Card:
         code=_clean_code(data.get("code"), barcode_format),
         format=barcode_format,
         owner=owner_name,
-        shared=bool(data.get("shared", False)),
+        shared=_clean_shared(data.get("shared")),
         color=_clean_color(data.get("color")),
         created_at=now,
         updated_at=now,
-        notes=str(data.get("notes") or "")[:500],
+        notes=_clean_notes(data.get("notes")),
     )
 
 
@@ -99,10 +117,10 @@ def apply_update(card: Card, data: dict[str, Any]) -> Card:
         changes["color"] = _clean_color(data["color"])
 
     if "shared" in data:
-        changes["shared"] = bool(data["shared"])
+        changes["shared"] = _clean_shared(data["shared"])
 
     if "notes" in data:
-        changes["notes"] = str(data["notes"] or "")[:500]
+        changes["notes"] = _clean_notes(data["notes"])
 
     if not changes:
         return card
