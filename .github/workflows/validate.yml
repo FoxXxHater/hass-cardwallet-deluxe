@@ -39,8 +39,6 @@ jobs:
           # These checks are about GitHub repository settings, not the code,
           # and only matter for inclusion in the HACS default list:
           # - brands: the icon is not in home-assistant/brands (yet)
-          # - issues: issues are disabled on the repository
-          # - topics: the repository has no topics
           # - license: the repository has no LICENSE file
           # Drop an entry once it is fixed on GitHub.
-          ignore: brands issues topics license
+          ignore: brands license
